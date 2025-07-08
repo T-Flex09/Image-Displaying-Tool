@@ -7,12 +7,21 @@ import time
 ### ========== GLOBAL* VARS ========== ### 
 KEEPIMG_TIMESLEEP = .2
 
+waitkey_delay = 1 #int((1 / 30) * 1000) ## Duration of each frame of video displays
+
 crt_images = 0
 running = False
 
-## Store the shown images
+image_extension_tuple = ("*.png", "*.jpg", "*.jpeg")
+video_extension_tuple = ("*.gif,", "*.mp4", "*.mov", "*.mkv")
+
+## Store shown images
 # Format: [name, img_MAT, (height, width), always_on_top]
 shown_img = []
+
+## Store shown videos (data type is different from images)
+# Format: [nname, vid_capture_var] 
+shown_vids = []
 
 ## Store window name of currently selected listbox image
 listbox_selected_img = ''
@@ -28,6 +37,26 @@ def find_with_index_nested(arr, idx, element):
     return -1
 ### ========== GLOBAL* VARS ========== ###
 
+def display_video_thread(capt, name):
+    while True:
+        ret, frame = capt.read()
+
+        if ret:
+            cv2.namedWindow(name, cv2.WINDOW_KEEPRATIO)
+            cv2.imshow(name, frame)
+
+            try:
+                if cv2.waitKey(waitkey_delay) == 27:
+                    break
+                if cv2.getWindowProperty(name, cv2.WND_PROP_VISIBLE) < 1:
+                    break
+
+            except Exception as e:
+                print(e)
+        else:
+            capt.set(cv2.CAP_PROP_POS_FRAMES, 0)
+    
+    capt.release()
 
 
 def check_img_arr():
@@ -47,6 +76,18 @@ def check_img_arr():
                 
                 shown_img.remove(elem)
                 crt_images -= 1
+        
+        for elem in shown_vids:
+            if cv2.getWindowProperty(elem[0], cv2.WND_PROP_VISIBLE) < 1:
+                listbox_tuple = listbox.get(0, tk.END)
+
+                for item in range(len(listbox_tuple)):
+                    if listbox_tuple[item] == elem[0]:
+                        listbox.delete(item)
+                        break
+                
+                shown_vids.remove(elem)
+
         
         ## Autofill width & height in the corresponding fields when item is selected
         try:
@@ -115,25 +156,57 @@ def switch_alw_top():
 ### =================== TKINTER STUFF =================== ###
 def openImage():    
     filepath = filedialog.askopenfilename(filetypes = (
-        ("Images", ("*.png", "*.jpg", "*.jpeg")),
-        ("All files", "*.*")
+        ("All files", "*.*"),
+        ("Images", image_extension_tuple),
+        ("Videos", video_extension_tuple)
     ))
     filename = filepath.split('/')[-1]
+    extension = '*.' + filepath.split('.')[-1]
 
-    ## CHECK IF IMAGE IS ALREADY LOADED
-    for img in shown_img:
-        if filename == img[0]:
-            display_error('File is already shown!', 'blue')
-            return 
+    if extension not in image_extension_tuple + video_extension_tuple:
+        display_error(f'Invalid file type of extension {extension}. Only images and videos are currently supported!')
+        return
+    
+    ## Check if file is image
+    if extension in image_extension_tuple:
+        ## CHECK IF FILE IS ALREADY LOADED
+        for img in shown_img:
+            if filename == img[0]:
+                display_error('File is already shown!', 'blue')
+                return 
 
-    try:
-        if filepath:
-            img = cv2.imread(filepath, cv2.IMREAD_ANYCOLOR)
+        try:
+            if filepath:
+                img = cv2.imread(filepath, cv2.IMREAD_ANYCOLOR)
 
-        shown_img.append([f"{filename}", img, img.shape[:2], False])
-        listbox.insert(len(shown_img) - 1, filename)
-    except Exception as e:
-        display_error(f"Raised error of type {type(e).__name__}. Please upload a valid image!")
+            shown_img.append([filename, img, img.shape[:2], False])
+            listbox.insert(len(shown_img) - 1, filename)
+        except Exception as e:
+            display_error(f"Raised error of type {type(e).__name__}. Please upload a valid image!")
+    
+    ## Check if file is video
+    if extension in video_extension_tuple:
+        for vid in shown_vids:
+            if filename == vid[0]:
+                display_error('File is already shown!', 'blue')
+                return             
+
+        try:
+            if filepath:
+                capture = cv2.VideoCapture(filepath)
+                capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+            shown_vids.append([filename, capture])
+            listbox.insert(0, filename)
+
+            # Enable separate thread for video display
+            t = Thread(target = display_video_thread, args = (capture, filename))
+            t.daemon = True
+            t.start()
+
+        except Exception as e:
+            display_error(f"Raised error of type {type(e).__name__}. Please upload a valid video!")
+
 
 def display_error(err_txt = '-', text_color = 'red'):   
     err_msg.config(
@@ -193,10 +266,10 @@ def keep_window_alive():
 if __name__ == "__main__":
     running = True
 
-    th1 = Thread(target = check_img_arr) # check for closed images
+    th1 = Thread(target = check_img_arr, daemon = True) # check for closed images
     th1.start()
 
-    th2 = Thread(target = keep_images) # keep images shown
+    th2 = Thread(target = keep_images, daemon = True) # keep images shown
     th2.start()
 
     keep_window_alive() ## Tkinter mainloop
