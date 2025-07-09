@@ -1,8 +1,13 @@
+import threading
 from threading import Thread
 from tkinter import filedialog
 import tkinter as tk
 import cv2
 import time
+
+## OBS! All rotation commands are DISABLED, they currently dont function properly
+
+
 
 ### ========== GLOBAL* VARS ========== ### 
 KEEPIMG_TIMESLEEP = .2
@@ -20,7 +25,7 @@ video_extension_tuple = ("*.gif,", "*.mp4", "*.mov", "*.mkv")
 shown_img = []
 
 ## Store shown videos (data type is different from images)
-# Format: [nname, vid_capture_var] 
+# Format: [nname, vid_capture_var, flip] 
 shown_vids = []
 
 ## Store window name of currently selected listbox image
@@ -37,12 +42,24 @@ def find_with_index_nested(arr, idx, element):
     return -1
 ### ========== GLOBAL* VARS ========== ###
 
+
+
 def display_video_thread(capt, name):
+    capt_arr = []
+    for arr in shown_vids:
+        if arr[0] == name: 
+            capt_arr = arr
+            break
+    
     while True:
         ret, frame = capt.read()
 
         if ret:
             cv2.namedWindow(name, cv2.WINDOW_KEEPRATIO)
+            # if capt_arr[2] != None: frame = cv2.rotate(frame, capt_arr[2])
+            if capt_arr[3] != None: 
+                frame = cv2.flip(frame, capt_arr[3])
+
             cv2.imshow(name, frame)
 
             try:
@@ -196,7 +213,7 @@ def openImage():
                 capture = cv2.VideoCapture(filepath)
                 capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-            shown_vids.append([filename, capture])
+            shown_vids.append([filename, capture, None, None])
             listbox.insert(0, filename)
 
             # Enable separate thread for video display
@@ -208,11 +225,53 @@ def openImage():
             display_error(f"Raised error of type {type(e).__name__}. Please upload a valid video!")
 
 
-def display_error(err_txt = '-', text_color = 'red'):   
+def display_error(err_txt = '-', text_color = 'red') -> None:   
     err_msg.config(
         text = '' if err_txt == '-' else err_txt, 
         fg = text_color
     )
+
+def get_file_by_name(filename):
+    for img in shown_img:
+        if filename == img[0]: return img
+    for vid in shown_vids:
+        if filename == vid[0]: return vid
+    return None
+
+
+def flip_img(FLIPCODE) -> None:
+    global window, listbox
+    
+    file_mat_arr = get_file_by_name(listbox_selected_img)
+
+    ## Handle video file case
+    if '*.' + file_mat_arr[0].split('.')[-1] in video_extension_tuple:
+        for vids in shown_vids:
+            if vids[0] == file_mat_arr[0]:
+                if vids[3] == FLIPCODE: vids[3] = None
+                else: 
+                    vids[3] = FLIPCODE
+                
+                break
+        return
+
+    try: 
+        file_mat_arr[1] = cv2.flip(file_mat_arr[1], FLIPCODE)
+        cv2.imshow(file_mat_arr[0], file_mat_arr[1])
+    except Exception as e:
+        display_error(f"There was an error when trying to flip image: \n{e}")
+
+
+# def rotate_img(direction) -> None:
+#     global window, listbox
+
+#     file_mat_arr = get_file_by_name(listbox_selected_img)
+
+#     try: 
+#         file_mat_arr[1] = cv2.rotate(file_mat_arr[1], direction)
+#         cv2.imshow(file_mat_arr[0], file_mat_arr[1])
+#     except Exception as e:
+#         display_error(f"There was an error when trying to rotate image: \n{e}")
 
 
 
@@ -221,7 +280,7 @@ def keep_window_alive():
 
     window = tk.Tk()
     window.title("Active Image Tool")
-    window.geometry("300x310")
+    window.geometry("300x375")
     # window.resizable(False, False)
 
     window.grid_columnconfigure(0, weight = 1)
@@ -245,6 +304,13 @@ def keep_window_alive():
         command = switch_alw_top
     )
 
+    fliph_btn = tk.Button(text = "Flip Horizontal", command = lambda: flip_img(1)) # Flip code is 1
+    flipv_btn = tk.Button(text = "Flip Vertical", command = lambda: flip_img(0)) # Flip code is 0
+    # rotate_clkwise = tk.Button(text = "Rotate Clockwise", command = lambda: rotate_img(cv2.ROTATE_90_CLOCKWISE))
+    # rotate_cntr_clkwise = tk.Button(text = "Rotate Counterclockwise", command = lambda: rotate_img(cv2.ROTATE_90_COUNTERCLOCKWISE))
+    
+    ## Rotation doesnt really work on non-square images !!!!
+
 
     button.grid(row = 0, column = 0, columnspan = 3)
     label.grid(row = 1, column = 0, columnspan = 3)
@@ -255,9 +321,14 @@ def keep_window_alive():
     ht_lbl.grid(row = 4, column = 1, sticky = tk.E)
     ht.grid(row = 4, column = 2)
     resize_btn.grid(row = 3, column = 0, rowspan = 2)
-    on_top_btn.grid(row = 5, columnspan = 3)
+    on_top_btn.grid(row = 6, columnspan = 3)
 
-    err_msg.grid(row = 6, columnspan = 3, pady = 15, sticky = tk.S)
+    fliph_btn.grid(row = 5, column = 0)
+    flipv_btn.grid(row = 5, column = 2)
+    # rotate_clkwise.grid(row = 7, column = 0)
+    # rotate_cntr_clkwise.grid(row = 7, column = 1)
+
+    err_msg.grid(row = 8, columnspan = 3, pady = 15, sticky = tk.S)
 
     window.mainloop()
 
