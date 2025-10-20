@@ -1,7 +1,8 @@
-import threading
 from threading import Thread
 from tkinter import filedialog
 import tkinter as tk
+import tkinter.font as tkFont
+from PIL import Image, ImageDraw, ImageTk
 import cv2
 import time
 import os
@@ -27,6 +28,18 @@ WINDOWS = {
 }
 
 CONFIG = {
+    ## Dimensions of program window
+    "window_width": 600,
+    "window_height": 500,
+    ## App theme
+    "theme": {
+        "background": "#303030",
+        "button_color": "#707070",
+        "button_hover": "#707040",
+        "text_color": "#ffffff",
+        "font": "Segoe UI",
+        "font_size": 15,
+    },
     ## Keycode of the key designated to close the program
     "escape_key": 27,
     ## Controls how often certain threads check for closed windows
@@ -225,6 +238,55 @@ def switch_alw_top():
         except Exception as e:
             display_error(f"Could not change topmost property: {e}")
 
+### =================== OBJECTS STUFF =================== ###
+class ModernButton(tk.Label):
+    def __init__(self, master, text="", wraplength=CONFIG["window_width"], width=100, height=40, radius=12,
+                 bg_color=CONFIG["theme"]["button_color"], hover_color=CONFIG["theme"]["button_hover"], background_color=CONFIG["theme"]["background"], text_color=CONFIG["theme"]["text_color"],
+                 font=(CONFIG["theme"]["font"], CONFIG["theme"]["font_size"], "bold"), command=None, **kwargs):
+        super().__init__(master, **kwargs)
+
+        self.wraplength = wraplength
+        self.width = width
+        self.height = height
+        self.radius = radius
+        self.bg_color = bg_color
+        self.background_color = background_color
+        self.hover_color = hover_color
+        self.text_color = text_color
+        self.font = font
+        self.command = command
+
+        # Create the default and hover images
+        self.default_img = self._create_rounded_image(bg_color, background_color)
+        self.hover_img = self._create_rounded_image(hover_color, background_color)
+
+        # Configure label as button
+        self.config(image=self.default_img, text=text, compound="center",
+                    fg=text_color, font = font, cursor="hand2", bd=0)
+        
+        # Bind hover and click
+        self.bind("<Enter>", self.on_enter)
+        self.bind("<Leave>", self.on_leave)
+        self.bind("<Button-1>", self.on_click)
+
+    def _create_rounded_image(self, color, background_color):
+        """Create a rounded rectangle image with the given color."""
+        img = Image.new("RGBA", (self.width, self.height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        draw.rectangle((0, 0, self.width, self.height), fill=background_color, outline=None)
+        draw.rounded_rectangle((0, 0, self.width, self.height), radius=self.radius, fill=color)
+        return ImageTk.PhotoImage(img)
+
+    def on_enter(self, event):
+        self.config(image=self.hover_img)
+
+    def on_leave(self, event):
+        self.config(image=self.default_img)
+
+    def on_click(self, event):
+        if self.command:
+            self.command()
+
 ### =================== TKINTER STUFF =================== ###
 def openImage():
     """Opens user-selected file. If it is a video, it spawns a separate thread for it"""
@@ -373,64 +435,146 @@ def rotate_media(direction) -> None:
 def keep_window_alive():
     global window, listbox, wd, ht, err_msg, on_top_btn, alw_top_var
 
+    COLUMN_WIDTH = CONFIG["window_width"]//12
+
     window = tk.Tk()
     window.title("Active Image Tool")
-    window.geometry("300x375")
+    window.geometry(f"{CONFIG['window_width']}x{CONFIG['window_height']}")
     # window.resizable(False, False)
-
     window.grid_columnconfigure(0, weight = 1)
+    window.configure(bg=CONFIG["theme"]["background"])
 
-    listbox = tk.Listbox(window)
-    label = tk.Label(window, text = "Active Windows")
-    button = tk.Button(text = "Select File", command = openImage)
-
-    wd_lbl = tk.Label(window, text = "Width: ")
-    ht_lbl = tk.Label(window, text = "Height: ")
-    wd = tk.Entry(window)
-    ht = tk.Entry(window)
-    resize_btn = tk.Button(text = "Resize", command = resizeImg)
-
-    err_msg = tk.Label(window, fg = "red", wraplength = 275)
+    window.option_add("*Button.relief", "flat")
+    window.option_add("*Label.relief", "flat")
+    window.option_add("*Entry.relief", "flat")
+    # creating a font object
+    fontObj = tkFont.Font(font=(CONFIG["theme"]["font"], CONFIG["theme"]["font_size"]))
 
     alw_top_var = tk.BooleanVar()
+    listbox = tk.Listbox(
+        window,
+        width = (COLUMN_WIDTH*6)//CONFIG["theme"]["font_size"],
+        font = fontObj,
+        bg=CONFIG["theme"]["background"],
+        borderwidth=0, 
+    )
+    label = tk.Label(
+        window,
+        text = "Active Windows",
+        font = fontObj,
+        bg=CONFIG["theme"]["background"],
+        fg=CONFIG["theme"]["text_color"],
+        borderwidth=0, 
+    )
+
+    wd_lbl = tk.Label(
+        window,
+        text = "Width: ",
+        font = fontObj,
+        bg=CONFIG["theme"]["background"],
+        fg=CONFIG["theme"]["text_color"]
+    )
+    ht_lbl = tk.Label(
+        window,
+        text = "Height: ",
+        font = fontObj,
+        bg=CONFIG["theme"]["background"],
+        fg=CONFIG["theme"]["text_color"]
+    )
+    wd = tk.Entry(
+        window,
+        width = (COLUMN_WIDTH*3)//CONFIG["theme"]["font_size"],
+        font = fontObj,
+        bg = CONFIG["theme"]["button_color"],
+        fg = CONFIG["theme"]["text_color"],
+    )
+    ht = tk.Entry(
+        window,
+        width = (COLUMN_WIDTH*3)//CONFIG["theme"]["font_size"],
+        font = fontObj,
+        bg = CONFIG["theme"]["button_color"],
+        fg = CONFIG["theme"]["text_color"],
+    )
+
+    err_msg = tk.Label(window, fg = "red", wraplength = COLUMN_WIDTH*10, font = fontObj, bg=CONFIG["theme"]["background"])
+
+    
     on_top_btn = tk.Checkbutton(
         text = "Stays on top?",
         variable = alw_top_var,
         command = switch_alw_top,
+        font = fontObj,
     )
 
-    fliph_btn = tk.Button(text = "Flip Horizontal", command = lambda: flip_img(1)) # Flip code is 1
-    flipv_btn = tk.Button(text = "Flip Vertical", command = lambda: flip_img(0)) # Flip code is 0
+    button = ModernButton(
+        window,
+        text = "Select File",
+        command = openImage,
+        width = COLUMN_WIDTH*2,
+        font = fontObj,
+    )
+
+    resize_btn = ModernButton(
+        window,
+        text = "Resize",
+        command = resizeImg,
+        width = COLUMN_WIDTH*2,
+        font = fontObj, 
+    )
+
+    fliph_btn = ModernButton(
+        window,
+        text = "Flip Horizontal",
+        command = lambda: flip_media(1), # Flip code is 1
+        width = COLUMN_WIDTH*3,
+        font = fontObj,
+    )
+    flipv_btn = ModernButton(
+        window,
+        text = "Flip Vertical",
+        command = lambda: flip_media(0), # Flip code is 0
+        width = COLUMN_WIDTH*3,
+        font = fontObj,
+    ) 
     
-    rotate_clkwise = tk.Button(
+    rotate_clkwise = ModernButton(
+        window,
         text = "Rotate Clockwise", 
         command = lambda: rotate_media(cv2.ROTATE_90_CLOCKWISE),
+        width = COLUMN_WIDTH*6,
+        font = fontObj,
     )
-    rotate_cntr_clkwise = tk.Button(
+    rotate_cntr_clkwise = ModernButton(
+        window,
         text = "Rotate Counterclockwise", 
         command = lambda: rotate_media(cv2.ROTATE_90_COUNTERCLOCKWISE),
+        width = COLUMN_WIDTH*6,
+        font = fontObj,
     )
-
-    # layout
-    button.grid(row = 0, column = 0, columnspan = 3)
-    label.grid(row = 1, column = 0, columnspan = 3)
-    listbox.grid(row = 2, column = 0, columnspan = 3)
-
-    wd_lbl.grid(row = 3, column = 1, sticky = tk.E)
-    wd.grid(row = 3, column = 2)
-    ht_lbl.grid(row = 4, column = 1, sticky = tk.E)
-    ht.grid(row = 4, column = 2)
-    resize_btn.grid(row = 3, column = 0, rowspan = 2)
-    on_top_btn.grid(row = 6, columnspan = 3)
-
-    fliph_btn.grid(row = 5, column = 0)
-    flipv_btn.grid(row = 5, column = 2)
-
-    rotate_clkwise.grid(row = 7, column = 0)
-    rotate_cntr_clkwise.grid(row = 7, column = 2)
-
-    err_msg.grid(row = 8, columnspan = 3, pady = 15, sticky = tk.S)
-
+    
+    ## LAYOUT
+    # Top left corner
+    button.grid(row = 0, column = 0, sticky = 'W')
+    # Box of active windows right below it
+    label.grid(row = 1, column = 0, columnspan = 6, sticky = 'W') 
+    listbox.grid(row = 2, column = 0, rowspan = 6, columnspan = 6, sticky = 'W')
+    # Behavior modifying buttons on the right
+    # - width
+    wd_lbl.grid(row = 1, column = 6, columnspan = 2, sticky='E')
+    wd.grid(row = 1, column = 8, columnspan = 4, sticky='W')
+    # - height
+    ht_lbl.grid(row = 2, column = 6, columnspan = 2, sticky='E')
+    ht.grid(row = 2, column = 8, columnspan = 4, sticky='W')
+    # - resize
+    resize_btn.grid(row = 3, column = 8, columnspan = 2)
+    # - flip
+    fliph_btn.grid(row = 4, column = 6, columnspan = 3, sticky = 'W')
+    flipv_btn.grid(row = 4, column = 9, columnspan = 3, sticky = 'E')
+    # - rotate
+    rotate_clkwise.grid(row = 6, column = 6, columnspan = 6)
+    rotate_cntr_clkwise.grid(row = 5, column = 6, columnspan = 6)
+    # Error message at the bottom
+    err_msg.grid(row = 8, column = 0, columnspan = 12)
     window.mainloop()
 
 ### =================== RUNNING MAIN PART =================== ###
