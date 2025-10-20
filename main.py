@@ -1,4 +1,5 @@
 from threading import Thread
+import threading
 from tkinter import filedialog
 import tkinter as tk
 import tkinter.font as tkFont
@@ -240,52 +241,188 @@ def switch_alw_top():
 
 ### =================== OBJECTS STUFF =================== ###
 class ModernButton(tk.Label):
-    def __init__(self, master, text="", wraplength=CONFIG["window_width"], width=100, height=40, radius=12,
-                 bg_color=CONFIG["theme"]["button_color"], hover_color=CONFIG["theme"]["button_hover"], background_color=CONFIG["theme"]["background"], text_color=CONFIG["theme"]["text_color"],
-                 font=(CONFIG["theme"]["font"], CONFIG["theme"]["font_size"], "bold"), command=None, **kwargs):
+    def __init__(
+        self, master, text="", width=120, height=40, radius=10,
+        bg_color=CONFIG["theme"]["button_color"],
+        hover_color=CONFIG["theme"]["button_hover"],
+        background_color=CONFIG["theme"]["background"],
+        text_color=CONFIG["theme"]["text_color"],
+        font=(CONFIG["theme"]["font"], CONFIG["theme"]["font_size"], "bold"),
+        fade_steps=10, fade_delay=0.02, command=None, **kwargs
+    ):
         super().__init__(master, **kwargs)
 
-        self.wraplength = wraplength
         self.width = width
         self.height = height
         self.radius = radius
         self.bg_color = bg_color
-        self.background_color = background_color
         self.hover_color = hover_color
+        self.background_color = background_color
         self.text_color = text_color
         self.font = font
+        self.fade_steps = fade_steps
+        self.fade_delay = fade_delay
         self.command = command
 
-        # Create the default and hover images
-        self.default_img = self._create_rounded_image(bg_color, background_color)
-        self.hover_img = self._create_rounded_image(hover_color, background_color)
+        self.configure(bg=self.background_color, bd=0, highlightthickness=0)
 
-        # Configure label as button
-        self.config(image=self.default_img, text=text, compound="center",
-                    fg=text_color, font = font, cursor="hand2", bd=0)
-        
+        # Initial image
+        self.current_color = self.bg_color
+        self.current_img = self._create_rounded_image(self.current_color)
+        self.config(
+            image=self.current_img,
+            text=text,
+            compound="center",
+            fg=self.text_color,
+            font=self.font,
+            cursor="hand2",
+        )
+
         # Bind hover and click
         self.bind("<Enter>", self.on_enter)
         self.bind("<Leave>", self.on_leave)
         self.bind("<Button-1>", self.on_click)
 
-    def _create_rounded_image(self, color, background_color):
-        """Create a rounded rectangle image with the given color."""
+        # Keep reference to prevent garbage collection
+        self.image_ref = self.current_img
+
+    # --- utility ---
+    def _hex_to_rgb(self, hex_color):
+        hex_color = hex_color.lstrip("#")
+        return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+    def _rgb_to_hex(self, rgb):
+        return "#%02x%02x%02x" % rgb
+
+    def _blend_colors(self, c1, c2, t):
+        return tuple(int(c1[i] + (c2[i] - c1[i]) * t) for i in range(3))
+
+    # --- image generation ---
+    def _create_rounded_image(self, color_hex):
+        color = self._hex_to_rgb(color_hex)
+        bg = self._hex_to_rgb(self.background_color)
         img = Image.new("RGBA", (self.width, self.height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
-        draw.rectangle((0, 0, self.width, self.height), fill=background_color, outline=None)
         draw.rounded_rectangle((0, 0, self.width, self.height), radius=self.radius, fill=color)
-        return ImageTk.PhotoImage(img)
+        bg_img = Image.new("RGBA", (self.width, self.height), bg + (255,))
+        final = Image.alpha_composite(bg_img, img)
+        return ImageTk.PhotoImage(final)
+
+    # --- hover fade animation ---
+    def fade_to_color(self, target_color):
+        start_rgb = self._hex_to_rgb(self.current_color)
+        end_rgb = self._hex_to_rgb(target_color)
+
+        for i in range(1, self.fade_steps + 1):
+            blended_rgb = self._blend_colors(start_rgb, end_rgb, i / self.fade_steps)
+            blended_hex = self._rgb_to_hex(blended_rgb)
+            img = self._create_rounded_image(blended_hex)
+            self.config(image=img)
+            self.image_ref = img  # keep reference
+            time.sleep(self.fade_delay)
+
+        self.current_color = target_color
 
     def on_enter(self, event):
-        self.config(image=self.hover_img)
+        threading.Thread(target=self.fade_to_color, args=(self.hover_color,), daemon=True).start()
 
     def on_leave(self, event):
-        self.config(image=self.default_img)
+        threading.Thread(target=self.fade_to_color, args=(self.bg_color,), daemon=True).start()
 
     def on_click(self, event):
         if self.command:
             self.command()
+
+class CustomTitlebar(tk.Frame):
+    """A dark-themed custom title bar that replaces the native OS title bar."""
+
+    def __init__(self, master, title="", *args, **kwargs):
+        super().__init__(master, bg=CONFIG["theme"]["button_color"], height=32, *args, **kwargs)
+
+        # Remove native title bar
+        master.overrideredirect(True)
+
+        # Store colors
+        self.bg_color = CONFIG["theme"]["button_color"]
+        self.hover_color = CONFIG["theme"]["button_hover"]
+        self.text_color = CONFIG["theme"]["text_color"]
+        self.font = (CONFIG["theme"]["font"], CONFIG["theme"]["font_size"], "bold")
+
+        # --- Title text ---
+        self.title_label = tk.Label(
+            self,
+            text=title,
+            bg=self.bg_color,
+            fg=self.text_color,
+            font=self.font,
+            anchor="w",
+            padx=10
+        )
+        self.title_label.pack(side="left", fill="y")
+
+        # --- Window control buttons ---
+        self.btn_container = tk.Frame(self, bg=self.bg_color)
+        self.btn_container.pack(side="right", fill="y")
+
+        self.min_btn = self._create_button("–", self.minimize)
+        self.close_btn = self._create_button("✕", master.destroy)
+
+        self.min_btn.pack(side="right", padx=2, pady=2)
+        self.close_btn.pack(side="right", padx=2, pady=2)
+
+        # --- Bind window dragging ---
+        self.bind("<ButtonPress-1>", self.start_move)
+        self.bind("<ButtonRelease-1>", self.stop_move)
+        self.bind("<B1-Motion>", self.do_move)
+        self.title_label.bind("<ButtonPress-1>", self.start_move)
+        self.title_label.bind("<ButtonRelease-1>", self.stop_move)
+        self.title_label.bind("<B1-Motion>", self.do_move)
+
+        # Keep track of drag offset
+        self._drag_data = {"x": 0, "y": 0}
+
+    # --- Utility: create top-right control buttons ---
+    def _create_button(self, symbol, command):
+        btn = tk.Label(
+            self.btn_container,
+            text=symbol,
+            bg=self.bg_color,
+            fg=self.text_color,
+            font=(CONFIG["theme"]["font"], CONFIG["theme"]["font_size"], "bold"),
+            width=3,
+            cursor="hand2"
+        )
+
+        btn.bind("<Enter>", lambda e: btn.config(bg=self.hover_color))
+        btn.bind("<Leave>", lambda e: btn.config(bg=self.bg_color))
+        btn.bind("<Button-1>", lambda e: command())
+        return btn
+
+    # --- Window move logic ---
+    def start_move(self, event):
+        self._drag_data["x"] = event.x
+        self._drag_data["y"] = event.y
+
+    def stop_move(self, event):
+        self._drag_data["x"] = 0
+        self._drag_data["y"] = 0
+
+    def do_move(self, event):
+        x = event.x_root - self._drag_data["x"]
+        y = event.y_root - self._drag_data["y"]
+        self.master.geometry(f"+{x}+{y}")
+
+    # --- Window minimize ---
+    def minimize(self):
+        self.master.update_idletasks()
+        self.master.overrideredirect(False)
+        self.master.iconify()
+        # Re-enable custom title bar after restoring
+        self.master.bind("<Map>", self._restore)
+
+    def _restore(self, event=None):
+        self.master.overrideredirect(True)
+        self.master.unbind("<Map>")
 
 ### =================== TKINTER STUFF =================== ###
 def openImage():
@@ -448,20 +585,22 @@ def keep_window_alive():
     window.option_add("*Label.relief", "flat")
     window.option_add("*Entry.relief", "flat")
     # creating a font object
-    fontObj = tkFont.Font(font=(CONFIG["theme"]["font"], CONFIG["theme"]["font_size"]))
+    custom_font = tkFont.Font(font=(CONFIG["theme"]["font"], CONFIG["theme"]["font_size"]))
 
     alw_top_var = tk.BooleanVar()
     listbox = tk.Listbox(
         window,
         width = (COLUMN_WIDTH*6)//CONFIG["theme"]["font_size"],
-        font = fontObj,
         bg=CONFIG["theme"]["background"],
-        borderwidth=0, 
+        highlightthickness=0,
+        relief="flat",
+        font = custom_font,
+        background = CONFIG["theme"]["button_color"]
     )
     label = tk.Label(
         window,
         text = "Active Windows",
-        font = fontObj,
+        font = custom_font,
         bg=CONFIG["theme"]["background"],
         fg=CONFIG["theme"]["text_color"],
         borderwidth=0, 
@@ -470,40 +609,47 @@ def keep_window_alive():
     wd_lbl = tk.Label(
         window,
         text = "Width: ",
-        font = fontObj,
+        font = custom_font,
         bg=CONFIG["theme"]["background"],
         fg=CONFIG["theme"]["text_color"]
     )
     ht_lbl = tk.Label(
         window,
         text = "Height: ",
-        font = fontObj,
+        font = custom_font,
         bg=CONFIG["theme"]["background"],
         fg=CONFIG["theme"]["text_color"]
     )
     wd = tk.Entry(
         window,
         width = (COLUMN_WIDTH*3)//CONFIG["theme"]["font_size"],
-        font = fontObj,
+        font = custom_font,
         bg = CONFIG["theme"]["button_color"],
         fg = CONFIG["theme"]["text_color"],
     )
     ht = tk.Entry(
         window,
         width = (COLUMN_WIDTH*3)//CONFIG["theme"]["font_size"],
-        font = fontObj,
+        font = custom_font,
         bg = CONFIG["theme"]["button_color"],
         fg = CONFIG["theme"]["text_color"],
     )
 
-    err_msg = tk.Label(window, fg = "red", wraplength = COLUMN_WIDTH*10, font = fontObj, bg=CONFIG["theme"]["background"])
+    err_msg = tk.Label(window, fg = "red", wraplength = COLUMN_WIDTH*10, font = custom_font, bg=CONFIG["theme"]["background"])
 
     
     on_top_btn = tk.Checkbutton(
         text = "Stays on top?",
         variable = alw_top_var,
         command = switch_alw_top,
-        font = fontObj,
+        font = custom_font,
+        background = CONFIG["theme"]["background"],
+        fg = CONFIG["theme"]["text_color"],
+        activebackground = CONFIG["theme"]["background"],
+        activeforeground = CONFIG["theme"]["text_color"],
+        selectcolor = CONFIG["theme"]["background"],
+        highlightthickness = 0,
+        bd = 0,
     )
 
     button = ModernButton(
@@ -511,7 +657,7 @@ def keep_window_alive():
         text = "Select File",
         command = openImage,
         width = COLUMN_WIDTH*2,
-        font = fontObj,
+        font = custom_font,
     )
 
     resize_btn = ModernButton(
@@ -519,7 +665,7 @@ def keep_window_alive():
         text = "Resize",
         command = resizeImg,
         width = COLUMN_WIDTH*2,
-        font = fontObj, 
+        font = custom_font, 
     )
 
     fliph_btn = ModernButton(
@@ -527,14 +673,14 @@ def keep_window_alive():
         text = "Flip Horizontal",
         command = lambda: flip_media(1), # Flip code is 1
         width = COLUMN_WIDTH*3,
-        font = fontObj,
+        font = custom_font,
     )
     flipv_btn = ModernButton(
         window,
         text = "Flip Vertical",
         command = lambda: flip_media(0), # Flip code is 0
         width = COLUMN_WIDTH*3,
-        font = fontObj,
+        font = custom_font,
     ) 
     
     rotate_clkwise = ModernButton(
@@ -542,14 +688,14 @@ def keep_window_alive():
         text = "Rotate Clockwise", 
         command = lambda: rotate_media(cv2.ROTATE_90_CLOCKWISE),
         width = COLUMN_WIDTH*6,
-        font = fontObj,
+        font = custom_font,
     )
     rotate_cntr_clkwise = ModernButton(
         window,
         text = "Rotate Counterclockwise", 
         command = lambda: rotate_media(cv2.ROTATE_90_COUNTERCLOCKWISE),
         width = COLUMN_WIDTH*6,
-        font = fontObj,
+        font = custom_font,
     )
     
     ## LAYOUT
@@ -565,8 +711,9 @@ def keep_window_alive():
     # - height
     ht_lbl.grid(row = 2, column = 6, columnspan = 2, sticky='E')
     ht.grid(row = 2, column = 8, columnspan = 4, sticky='W')
-    # - resize
-    resize_btn.grid(row = 3, column = 8, columnspan = 2)
+    # - resize && always on top
+    resize_btn.grid(row = 3, column = 9, columnspan = 2)
+    on_top_btn.grid(row = 3, column = 7, columnspan = 2)
     # - flip
     fliph_btn.grid(row = 4, column = 6, columnspan = 3, sticky = 'W')
     flipv_btn.grid(row = 4, column = 9, columnspan = 3, sticky = 'E')
@@ -574,7 +721,7 @@ def keep_window_alive():
     rotate_clkwise.grid(row = 6, column = 6, columnspan = 6)
     rotate_cntr_clkwise.grid(row = 5, column = 6, columnspan = 6)
     # Error message at the bottom
-    err_msg.grid(row = 8, column = 0, columnspan = 12)
+    err_msg.grid(row = 6, column = 0, columnspan = 12)
     window.mainloop()
 
 ### =================== RUNNING MAIN PART =================== ###
