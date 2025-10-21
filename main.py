@@ -334,19 +334,34 @@ class ModernButton(tk.Label):
             self.command()
 
 class CustomTitlebar(tk.Frame):
-    """A dark-themed custom title bar that replaces the native OS title bar."""
+    """A dark-themed custom title bar that replaces the native OS title bar, with taskbar icon."""
 
-    def __init__(self, master, title="", *args, **kwargs):
-        super().__init__(master, bg=CONFIG["theme"]["button_color"], height=32, *args, **kwargs)
+    def __init__(self, master, title="", icon_path=None, *args, **kwargs):
+        super().__init__(master, bg=CONFIG["theme"]["background"], height=32, width=CONFIG["window_width"], *args, **kwargs)
 
-        # Remove native title bar
+        # --- Create hidden root to hold the taskbar entry ---
+        self.taskbar_window = tk.Toplevel(master)
+        self.taskbar_window.withdraw()
+        self.taskbar_window.title(title or "App")
+        if icon_path and os.path.exists(icon_path):
+            try:
+                self.taskbar_window.iconbitmap(icon_path)
+            except Exception:
+                pass
+        self.taskbar_window.protocol("WM_DELETE_WINDOW", master.destroy)
+
+        # --- Link real window to dummy taskbar window ---
+        master.wm_withdraw()
+        self.taskbar_window.deiconify()
+        self.taskbar_window.overrideredirect(True)
+        self.taskbar_window.geometry("1x1+0+0")  # invisible but present in taskbar
         master.overrideredirect(True)
 
         # Store colors
-        self.bg_color = CONFIG["theme"]["button_color"]
+        self.bg_color = CONFIG["theme"]["background"]
         self.hover_color = CONFIG["theme"]["button_hover"]
         self.text_color = CONFIG["theme"]["text_color"]
-        self.font = (CONFIG["theme"]["font"], CONFIG["theme"]["font_size"], "bold")
+        self.font = (CONFIG["theme"]["font"], CONFIG["theme"]["font_size"])
 
         # --- Title text ---
         self.title_label = tk.Label(
@@ -366,22 +381,19 @@ class CustomTitlebar(tk.Frame):
 
         self.min_btn = self._create_button("–", self.minimize)
         self.close_btn = self._create_button("✕", master.destroy)
-
-        self.min_btn.pack(side="right", padx=2, pady=2)
         self.close_btn.pack(side="right", padx=2, pady=2)
+        self.min_btn.pack(side="right", padx=2, pady=2)
 
         # --- Bind window dragging ---
-        self.bind("<ButtonPress-1>", self.start_move)
-        self.bind("<ButtonRelease-1>", self.stop_move)
-        self.bind("<B1-Motion>", self.do_move)
-        self.title_label.bind("<ButtonPress-1>", self.start_move)
-        self.title_label.bind("<ButtonRelease-1>", self.stop_move)
-        self.title_label.bind("<B1-Motion>", self.do_move)
+        for widget in (self, self.title_label, self.btn_container):
+            widget.bind("<ButtonPress-1>", self.start_move)
+            widget.bind("<ButtonRelease-1>", self.stop_move)
+            widget.bind("<B1-Motion>", self.do_move)
 
-        # Keep track of drag offset
+        # Track drag offsets
         self._drag_data = {"x": 0, "y": 0}
 
-    # --- Utility: create top-right control buttons ---
+    # --- Utility: create control button ---
     def _create_button(self, symbol, command):
         btn = tk.Label(
             self.btn_container,
@@ -392,13 +404,12 @@ class CustomTitlebar(tk.Frame):
             width=3,
             cursor="hand2"
         )
-
         btn.bind("<Enter>", lambda e: btn.config(bg=self.hover_color))
         btn.bind("<Leave>", lambda e: btn.config(bg=self.bg_color))
         btn.bind("<Button-1>", lambda e: command())
         return btn
 
-    # --- Window move logic ---
+    # --- Dragging logic ---
     def start_move(self, event):
         self._drag_data["x"] = event.x
         self._drag_data["y"] = event.y
@@ -412,17 +423,18 @@ class CustomTitlebar(tk.Frame):
         y = event.y_root - self._drag_data["y"]
         self.master.geometry(f"+{x}+{y}")
 
-    # --- Window minimize ---
+    # --- Minimize ---
     def minimize(self):
         self.master.update_idletasks()
-        self.master.overrideredirect(False)
-        self.master.iconify()
-        # Re-enable custom title bar after restoring
-        self.master.bind("<Map>", self._restore)
+        self.master.withdraw()
+        self.taskbar_window.iconify()
+        self.taskbar_window.bind("<Map>", self._restore)
 
     def _restore(self, event=None):
+        self.master.deiconify()
+        self.taskbar_window.withdraw()
         self.master.overrideredirect(True)
-        self.master.unbind("<Map>")
+        self.taskbar_window.unbind("<Map>")
 
 ### =================== TKINTER STUFF =================== ###
 def openImage():
@@ -587,6 +599,8 @@ def keep_window_alive():
     # creating a font object
     custom_font = tkFont.Font(font=(CONFIG["theme"]["font"], CONFIG["theme"]["font_size"]))
 
+    titlebar = CustomTitlebar(window, title="Active Image Tool")
+
     alw_top_var = tk.BooleanVar()
     listbox = tk.Listbox(
         window,
@@ -699,29 +713,31 @@ def keep_window_alive():
     )
     
     ## LAYOUT
+    # Title bar
+    titlebar.grid(row = 0, column = 0, columnspan = 12, sticky = 'NSEW')
     # Top left corner
-    button.grid(row = 0, column = 0, sticky = 'W')
+    button.grid(row = 1, column = 0, sticky = 'W')
     # Box of active windows right below it
-    label.grid(row = 1, column = 0, columnspan = 6, sticky = 'W') 
-    listbox.grid(row = 2, column = 0, rowspan = 6, columnspan = 6, sticky = 'W')
+    label.grid(row = 2, column = 0, columnspan = 6, sticky = 'W') 
+    listbox.grid(row = 3, column = 0, rowspan = 6, columnspan = 6, sticky = 'W')
     # Behavior modifying buttons on the right
     # - width
-    wd_lbl.grid(row = 1, column = 6, columnspan = 2, sticky='E')
-    wd.grid(row = 1, column = 8, columnspan = 4, sticky='W')
+    wd_lbl.grid(row = 2, column = 6, columnspan = 2, sticky='E')
+    wd.grid(row = 2, column = 8, columnspan = 4, sticky='W')
     # - height
-    ht_lbl.grid(row = 2, column = 6, columnspan = 2, sticky='E')
-    ht.grid(row = 2, column = 8, columnspan = 4, sticky='W')
+    ht_lbl.grid(row = 3, column = 6, columnspan = 2, sticky='E')
+    ht.grid(row = 3, column = 8, columnspan = 4, sticky='W')
     # - resize && always on top
-    resize_btn.grid(row = 3, column = 9, columnspan = 2)
-    on_top_btn.grid(row = 3, column = 7, columnspan = 2)
+    resize_btn.grid(row = 4, column = 9, columnspan = 2)
+    on_top_btn.grid(row = 4, column = 7, columnspan = 2)
     # - flip
-    fliph_btn.grid(row = 4, column = 6, columnspan = 3, sticky = 'W')
-    flipv_btn.grid(row = 4, column = 9, columnspan = 3, sticky = 'E')
+    fliph_btn.grid(row = 5, column = 6, columnspan = 3, sticky = 'W')
+    flipv_btn.grid(row = 5, column = 9, columnspan = 3, sticky = 'E')
     # - rotate
-    rotate_clkwise.grid(row = 6, column = 6, columnspan = 6)
-    rotate_cntr_clkwise.grid(row = 5, column = 6, columnspan = 6)
+    rotate_clkwise.grid(row = 7, column = 6, columnspan = 6)
+    rotate_cntr_clkwise.grid(row = 6, column = 6, columnspan = 6)
     # Error message at the bottom
-    err_msg.grid(row = 6, column = 0, columnspan = 12)
+    err_msg.grid(row = 10, column = 0, columnspan = 12)
     window.mainloop()
 
 ### =================== RUNNING MAIN PART =================== ###
