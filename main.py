@@ -4,6 +4,7 @@ from tkinter import filedialog
 import tkinter as tk
 import tkinter.font as tkFont
 from PIL import Image, ImageDraw, ImageTk
+import numpy
 import cv2
 import time
 import os
@@ -212,12 +213,15 @@ def keep_images():
             cv2.destroyAllWindows()
         time.sleep(0.01)  # small sleep to avoid tight loop
 
-def resizeImg():
+def resizeImg(action = None):
     """Attempts to resize currently selected image"""
     global window, listbox, wd, ht
 
     try:
-        new_wd, new_ht = int(wd.get()), int(ht.get())
+        if action == 'rotate':
+            new_wd, new_ht = int(ht.get()), int(wd.get())
+        else:
+            new_wd, new_ht = int(wd.get()), int(ht.get())
         wnd_name = STATE["listbox_selected_img"]
         if wnd_name:
             cv2.resizeWindow(wnd_name, new_wd, new_ht)
@@ -332,109 +336,6 @@ class ModernButton(tk.Label):
     def on_click(self, event):
         if self.command:
             self.command()
-
-class CustomTitlebar(tk.Frame):
-    """A dark-themed custom title bar that replaces the native OS title bar, with taskbar icon."""
-
-    def __init__(self, master, title="", icon_path=None, *args, **kwargs):
-        super().__init__(master, bg=CONFIG["theme"]["background"], height=32, width=CONFIG["window_width"], *args, **kwargs)
-
-        # --- Create hidden root to hold the taskbar entry ---
-        self.taskbar_window = tk.Toplevel(master)
-        self.taskbar_window.withdraw()
-        self.taskbar_window.title(title or "App")
-        if icon_path and os.path.exists(icon_path):
-            try:
-                self.taskbar_window.iconbitmap(icon_path)
-            except Exception:
-                pass
-        self.taskbar_window.protocol("WM_DELETE_WINDOW", master.destroy)
-
-        # --- Link real window to dummy taskbar window ---
-        master.wm_withdraw()
-        self.taskbar_window.deiconify()
-        self.taskbar_window.overrideredirect(True)
-        self.taskbar_window.geometry("1x1+0+0")  # invisible but present in taskbar
-        master.overrideredirect(True)
-
-        # Store colors
-        self.bg_color = CONFIG["theme"]["background"]
-        self.hover_color = CONFIG["theme"]["button_hover"]
-        self.text_color = CONFIG["theme"]["text_color"]
-        self.font = (CONFIG["theme"]["font"], CONFIG["theme"]["font_size"])
-
-        # --- Title text ---
-        self.title_label = tk.Label(
-            self,
-            text=title,
-            bg=self.bg_color,
-            fg=self.text_color,
-            font=self.font,
-            anchor="w",
-            padx=10
-        )
-        self.title_label.pack(side="left", fill="y")
-
-        # --- Window control buttons ---
-        self.btn_container = tk.Frame(self, bg=self.bg_color)
-        self.btn_container.pack(side="right", fill="y")
-
-        self.min_btn = self._create_button("–", self.minimize)
-        self.close_btn = self._create_button("✕", master.destroy)
-        self.close_btn.pack(side="right", padx=2, pady=2)
-        self.min_btn.pack(side="right", padx=2, pady=2)
-
-        # --- Bind window dragging ---
-        for widget in (self, self.title_label, self.btn_container):
-            widget.bind("<ButtonPress-1>", self.start_move)
-            widget.bind("<ButtonRelease-1>", self.stop_move)
-            widget.bind("<B1-Motion>", self.do_move)
-
-        # Track drag offsets
-        self._drag_data = {"x": 0, "y": 0}
-
-    # --- Utility: create control button ---
-    def _create_button(self, symbol, command):
-        btn = tk.Label(
-            self.btn_container,
-            text=symbol,
-            bg=self.bg_color,
-            fg=self.text_color,
-            font=(CONFIG["theme"]["font"], CONFIG["theme"]["font_size"], "bold"),
-            width=3,
-            cursor="hand2"
-        )
-        btn.bind("<Enter>", lambda e: btn.config(bg=self.hover_color))
-        btn.bind("<Leave>", lambda e: btn.config(bg=self.bg_color))
-        btn.bind("<Button-1>", lambda e: command())
-        return btn
-
-    # --- Dragging logic ---
-    def start_move(self, event):
-        self._drag_data["x"] = event.x
-        self._drag_data["y"] = event.y
-
-    def stop_move(self, event):
-        self._drag_data["x"] = 0
-        self._drag_data["y"] = 0
-
-    def do_move(self, event):
-        x = event.x_root - self._drag_data["x"]
-        y = event.y_root - self._drag_data["y"]
-        self.master.geometry(f"+{x}+{y}")
-
-    # --- Minimize ---
-    def minimize(self):
-        self.master.update_idletasks()
-        self.master.withdraw()
-        self.taskbar_window.iconify()
-        self.taskbar_window.bind("<Map>", self._restore)
-
-    def _restore(self, event=None):
-        self.master.deiconify()
-        self.taskbar_window.withdraw()
-        self.master.overrideredirect(True)
-        self.taskbar_window.unbind("<Map>")
 
 ### =================== TKINTER STUFF =================== ###
 def openImage():
@@ -559,27 +460,8 @@ def rotate_media(direction) -> None:
                 break
         return
     # IMAGE
-    display_error(f"Images are not yet supported")
-    # # IMAGE
-    # if '*.' + file_mat_arr[0].split('.')[-1] in CONFIG["image_exts"]:
-    #     for imgs in WINDOWS["shown_img"]:
-    #         if imgs[0] == file_mat_arr[0]:
-    #             # Toggle rotation: if same direction -> reset
-    #             if imgs[2] == direction:
-    #                 imgs[2] = None
-    #             else:
-    #                 imgs[2] = direction
-    #             break
-
-    # try:
-    #     rotated = cv2.rotate(file_mat_arr[1], direction)
-    #     file_mat_arr[1] = rotated
-    #     file_mat_arr[2] = rotated.shape[:2]
-
-    #     # schedule the imshow to happen in the GUI thread
-    #     window.after(0, lambda: cv2.imshow(file_mat_arr[0], rotated))
-    # except Exception as e:
-    #     display_error(f"Error rotating image:\n{e}")
+    display_error('Images do not yet support rotation')
+    
 
 def keep_window_alive():
     global window, listbox, wd, ht, err_msg, on_top_btn, alw_top_var
@@ -598,8 +480,6 @@ def keep_window_alive():
     window.option_add("*Entry.relief", "flat")
     # creating a font object
     custom_font = tkFont.Font(font=(CONFIG["theme"]["font"], CONFIG["theme"]["font_size"]))
-
-    titlebar = CustomTitlebar(window, title="Active Image Tool")
 
     alw_top_var = tk.BooleanVar()
     listbox = tk.Listbox(
@@ -651,7 +531,6 @@ def keep_window_alive():
 
     err_msg = tk.Label(window, fg = "red", wraplength = COLUMN_WIDTH*10, font = custom_font, bg=CONFIG["theme"]["background"])
 
-    
     on_top_btn = tk.Checkbutton(
         text = "Stays on top?",
         variable = alw_top_var,
@@ -713,8 +592,6 @@ def keep_window_alive():
     )
     
     ## LAYOUT
-    # Title bar
-    titlebar.grid(row = 0, column = 0, columnspan = 12, sticky = 'NSEW')
     # Top left corner
     button.grid(row = 1, column = 0, sticky = 'W')
     # Box of active windows right below it
